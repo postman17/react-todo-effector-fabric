@@ -1,43 +1,79 @@
-import {createStore, createEvent, sample} from 'effector'
+import {createStore, createEvent, sample, forward} from 'effector'
 
 
 function createTodoListApi(initial = []) {
-    const insert = createEvent()
-    const remove = createEvent()
-    const change = createEvent()
-    const reset = createEvent()
-    const changeTask = createEvent()
-    const todos = createStore(initial)
-    const input = createStore('')
-    todos
-        .on(insert, (state, value) => [...state, value])
-        .on(remove, (state, index) => state.filter((_, i) => i !== index))
-        .on(changeTask, (state, [value, index]) => {
-            const newState = [...state]
-            newState[index] = value
+    function* idMaker() {
+        let index = 0;
+        while(true)
+            yield index++;
+    }
+    const getId = idMaker();
+    const initialData = () => {
+        let result = []
+        initial.forEach((value) => {
+            result.push({value: value, id: getId.next().value})
+        })
+        return result
+    }
+    const insertFn = createEvent()
+    const removeFn = createEvent()
+    const changeFn = createEvent()
+    const resetFn = createEvent()
+    const changeTaskFn = createEvent()
+    const $todos = createStore(initialData())
+    const $input = createStore('')
+    const addFn = createEvent()
+    const resetTempFn = createEvent()
+    const $temp = createStore({})
+
+    $temp
+        .on(addFn, (state, {value, id}) => {
+            const newState = {...state}
+            newState[id] = value
             return newState
         })
-    input.on(change, (state, value) => value)
-    input.on(reset, () => '')
-    input.on(insert, () => '')
+        .reset(resetTempFn)
+    $todos
+        .on(insertFn, (state, value) => [...state, {value: value, id: getId.next().value}])
+        .on(removeFn, (state, id) => state.filter(record => (record.id !== id)))
+        .on(changeTaskFn, (state, {value, id}) => {
+            const newState = [...state]
+            newState.forEach((data, index) => {
+                if (data.id === id) {
+                    newState[index].value = value
+                }
+            })
+            return newState
+        })
+    $input
+        .on(changeFn, (state, value) => value)
+        .on(resetFn, () => '')
+        .on(insertFn, () => '')
 
-    const submit = createEvent()
-    submit.watch(e => e.preventDefault())
+    const submitFn = createEvent()
+    submitFn.watch(e => e.preventDefault())
 
     sample({
-        clock: submit,
-        source: input,
-        target: insert,
+        clock: submitFn,
+        source: $input,
+        target: insertFn,
+    })
+
+    forward({
+        from: changeTaskFn,
+        to: resetTempFn
     })
 
     return {
-        list: todos,
-        submit,
-        input,
-        remove,
-        change: change.prepend(e => e.currentTarget.value),
-        reset,
-        changeTask: changeTask.prepend(([e, index]) => [e.target.value, index])
+        list: $todos,
+        submitFn,
+        $input,
+        removeFn,
+        changeFn,
+        resetFn,
+        changeTaskFn,
+        addFn,
+        $temp,
     }
 }
 
